@@ -13,13 +13,17 @@ int sht15DataPin = 4;
 int sht15ClockPin = 2;
 int sht15TemperatureVal;
 int sht15HumidityVal;
+int currentTemperatureInF;
+int currentTemperatureInC;
+int currentHumidityInPercent;
 int ack;
 
 //Photoresistor variables
 int lightSensorPin = 0;
 int lightADCReading;
+double lastLightADCReading = -1;
 
-//event bytes
+//event variables
 byte temperatureUpperThresholdReachedEvent = 0;
 byte lightsOnEvent = 1;
 byte lightsOffEvent = 2;
@@ -28,19 +32,14 @@ byte doorClosedEvent = 4;
 byte humidityLowerThresholdReachedEvent = 5;
 byte temperatureBackToNormalEvent = 6;
 byte humidityBackToNormalEvent = 7;
-
-//Sensor result variables
-int currentTemperatureInF;
-int currentTemperatureInC;
-int currentHumidityInPercent;
-double lastLightADCReading = -1;
-
 boolean isTemperatureUpperThresholdReachedEventReported = false;
 boolean isHumidityLowerThresholdReachedEventReported = false;
 boolean isDoorOpenEventReported = false;
 
 void setup() {
+  //Serial init for debugging
   Serial.begin(9600);
+  //WiFi init
   SpiSerial.begin();
  
   //exit CMD mode if not already done
@@ -85,22 +84,30 @@ void loop() {
 }
 
 void listenForEvents() {
-  if(digitalRead(tiltSwitchPin) == LOW) {
-    if(!isDoorOpenEventReported/* && client.connect()*/) {
-      Serial.println("open");
-  /*    client.write(doorOpenEvent);
-      client.stop();*/
+  
+  //-----------------------
+  //Check tilt switch state
+  //-----------------------
+  if(digitalRead(tiltSwitchPin) == HIGH) {
+    if(!isDoorOpenEventReported && client.connect()) {
+      Serial.println("door is open");
+      client.write(doorOpenEvent);
+      client.stop();
       isDoorOpenEventReported = true;
     }
   } else {
-    if(isDoorOpenEventReported/* && client.connect()*/) {
-      Serial.println("closed");
-      /*client.write(doorClosedEvent);
-      client.stop();*/
+    if(isDoorOpenEventReported && client.connect()) {
+      Serial.println("door is closed");
+      client.write(doorClosedEvent);
+      client.stop();
       isDoorOpenEventReported = false;
     }
   }
+  //-----------------------
   
+  //-----------------------
+  //Check temperature
+  //-----------------------
   sendCommandSHT(sht15TempCmd, sht15DataPin, sht15ClockPin);
   waitForResultSHT(sht15DataPin);
   sht15TemperatureVal = getData16SHT(sht15DataPin, sht15ClockPin);
@@ -112,20 +119,24 @@ void listenForEvents() {
   Serial.print("currentTemperatureInC: ");
   Serial.println(currentTemperatureInC, DEC);
   
-  if(currentTemperatureInC > 27) {
+  if(currentTemperatureInC > 26) {
     if (!isTemperatureUpperThresholdReachedEventReported && client.connect()) {
        client.write(temperatureUpperThresholdReachedEvent);
        isTemperatureUpperThresholdReachedEventReported = true;
        client.stop();
      } 
-  } else if(currentTemperatureInC < 28) {
+  } else if(currentTemperatureInC < 27) {
     if (isTemperatureUpperThresholdReachedEventReported && client.connect()) {
        client.write(temperatureBackToNormalEvent);
        isTemperatureUpperThresholdReachedEventReported = false;
        client.stop();
      } 
   }
+  //-----------------------
 
+  //-----------------------
+  //Check humidity
+  //-----------------------
   sendCommandSHT(sht15HumidCmd, sht15DataPin, sht15ClockPin);
   waitForResultSHT(sht15DataPin);
   sht15HumidityVal = getData16SHT(sht15DataPin, sht15ClockPin);
@@ -135,20 +146,24 @@ void listenForEvents() {
   Serial.print("currentHumidityInPercent: ");
   Serial.println(currentHumidityInPercent, DEC);
   
-  if(currentHumidityInPercent < 50) {
+  if(currentHumidityInPercent < 60) {
     if (!isHumidityLowerThresholdReachedEventReported && client.connect()) {
        client.write(humidityLowerThresholdReachedEvent);
        isHumidityLowerThresholdReachedEventReported = true;
        client.stop();
      } 
-  } else if (currentHumidityInPercent > 49) {
+  } else if (currentHumidityInPercent > 59) {
     if(isHumidityLowerThresholdReachedEventReported && client.connect()) {
        client.write(humidityBackToNormalEvent);
        isHumidityLowerThresholdReachedEventReported = false;
        client.stop();
      }
   }
+  //-----------------------
   
+  //-----------------------
+  //Check light
+  //-----------------------
   lightADCReading = analogRead(lightSensorPin);
   
   Serial.print("lightADCReading: ");
@@ -157,14 +172,15 @@ void listenForEvents() {
   if(lastLightADCReading < 0) {
     lastLightADCReading = lightADCReading;
   }
-  if((lightADCReading > lastLightADCReading + 200) && client.connect()) {
+  if((lightADCReading > lastLightADCReading + 300) && client.connect()) {
     client.write(lightsOnEvent);
     client.stop();
-  } else if((lightADCReading < lastLightADCReading - 200) && client.connect()) {
+  } else if((lightADCReading < lastLightADCReading - 300) && client.connect()) {
     client.write(lightsOffEvent);
     client.stop();
   }
   lastLightADCReading = lightADCReading;
+  //-----------------------
   
   delay(1000);
 }
